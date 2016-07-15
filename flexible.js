@@ -93,3 +93,12 @@
 
     refreshRem();
 })(window);
+//设计稿是375的，需要*2
+//@function px2rem($px) {
+	//@return $px / 75 * 2rem;
+//}
+
+//设计稿是750的，不需要*2
+//@function px2rem1($px) {
+	//@return $px / 75 * 1rem;
+//}
