@@ -1,0 +1,238 @@
+<html>
+
+<head>
+    <script>
+    // doT.js
+    // 2011-2014, Laura Doktorova, https://github.com/olado/doT
+    // Licensed under the MIT license.
+
+    (function() {
+        "use strict";
+
+        var doT = {
+            version: "2.0.0",
+            templateSettings: {
+                encode: /\{\{!([\s\S]+?)\}\}/g,
+                //
+                tagInclude: /\{\{\s*include:\s*([\s\S]*?)\s*\}\}/g,
+                tagVar: /\{\{\s*var:\s*([\s\S]*?)\s*\}\}/g,
+                tagIf: /\{\{\s*if:\s*([\s\S]*?)\s*\}\}/g,
+                tagElse: /\{\{\s*else:\s*\}\}/g,
+                tagElIf: /\{\{\s*(else if|elif|elseif):\s*([\s\S]*?)\s*\}\}/g,
+                tagIfEnd: /\{\{\s*\/if\s*\}\}/g,
+                tagContent: /\{\{([\s\S]+?)\}\}/g,
+                tagFor: /\{\{\s*for:\s*([\s\S]*?)\s*\}\}/g,
+                tagForEnd: /\{\{\s*\/for\s*\}\}/g,
+                //
+                varname: "it",
+                helpername: "helper",
+                globalname: "global"
+            },
+            template: undefined, //fn, compile template
+            compile: undefined, //fn, for express
+            helper: {
+                dateFormat: function(date, fmt) {
+                    date = new Date(Number(date || ''));
+                    fmt = fmt || 'yyyy-MM-dd HH:mm';
+                    var o = {
+                        'M+': date.getMonth() + 1, //月份      
+                        'd+': date.getDate(), //日      
+                        'h+': date.getHours() % 12 === 0 ? 12 : date.getHours() % 12, //小时      
+                        'H+': date.getHours(), //小时      
+                        'm+': date.getMinutes(), //分      
+                        's+': date.getSeconds(), //秒      
+                        'q+': Math.floor((date.getMonth() + 3) / 3), //季度      
+                        'S': date.getMilliseconds() //毫秒      
+                    };
+                    var week = {
+                        '0': '/u65e5',
+                        '1': '/u4e00',
+                        '2': '/u4e8c',
+                        '3': '/u4e09',
+                        '4': '/u56db',
+                        '5': '/u4e94',
+                        '6': '/u516d'
+                    };
+                    if (/(y+)/.test(fmt)) {
+                        fmt = fmt.replace(RegExp.$1, (date.getFullYear() + '').substr(4 - RegExp.$1.length));
+                    }
+                    if (/(E+)/.test(fmt)) {
+                        fmt = fmt.replace(RegExp.$1, ((RegExp.$1.length > 1) ? (RegExp.$1.length > 2 ? '/u661f/u671f' : '/u5468') : '') + week[date.getDay() + '']);
+                    }
+                    for (var k in o) {
+                        if (o.hasOwnProperty(k) && new RegExp('(' + k + ')').test(fmt)) {
+                            fmt = fmt.replace(RegExp.$1, (RegExp.$1.length == 1) ? (o[k]) : (('00' + o[k]).substr(('' + o[k]).length)));
+                        }
+                    }
+                    return fmt;
+                }
+            },
+            global: {
+                version: 3.00
+            }
+        };
+
+        window.doT = doT;
+
+        var startend = {
+                start: "';out+=(",
+                end: ");out+='",
+                startencode: "';out+=encodeHTML("
+            },
+            skip = /$^/;
+
+        function unescape(code) {
+            return code.replace(/\\('|\\)/g, "$1").replace(/[\r\t\n]/g, " ");
+        }
+
+        doT.template = function(tmpl, c, def) {
+            c = c || doT.templateSettings;
+            var cse = startend,
+                sid = 0,
+                indv,
+                str = tmpl;
+            var tmp = str;
+            tmp = tmp.replace(/(^|\r|\n)\t* *| *\t*(\r|\n|$)/g, " ");
+            // This is for include: xx
+            tmp = tmp.replace(c.tagInclude, function(m, code) {
+                return doT.getTpl(code);
+            });
+            // \r\n\t
+            tmp = tmp.replace(/(^|\r|\n)\t* *| *\t*(\r|\n|$)/g, " ");
+            // var:
+            tmp = tmp.replace(c.tagVar, function(m, code) {
+                return "';\nvar " + unescape(code) + ";\nout+='";
+            });
+            // if: or elsif:
+            tmp = tmp.replace(c.tagIf, function(m, code) {
+                return "';\nif(" + unescape(code) + "){\nout+='";
+            });
+            tmp = tmp.replace(c.tagElIf, function(m, elif, code) {
+                return "';}\nelse if(" + unescape(code) + "){\nout+='";
+            });
+            tmp = tmp.replace(c.tagElse, "'}else{\nout+='");
+            tmp = tmp.replace(c.tagIfEnd, "'};\nout+='");
+            // for: ... in/as ...
+            tmp = tmp.replace(c.tagFor, function(m, code) {
+                if (code.indexOf(' in ') < 0 && code.indexOf(' as ') < 0) return '';
+
+                var mm = "';";
+                var kk, vv, cc;
+                var nn = "";
+                if (code.indexOf(' in ') > -1) {
+                    var ss = code.split(' in ');
+                    var str = ss[0].split(',');
+                    var parent = unescape(ss[1]);
+
+                    kk = unescape(str[0]);
+                    vv = str.length > 1 ? unescape(str[1]) : '';
+                } else if (code.indexOf(' as ') > -1) {
+                    var ss = code.split(' as ');
+                    var str = ss[1].split(',');
+                    var parent = unescape(ss[0]);
+
+                    kk = str.length > 1 ? unescape(str[1]) : '';
+                    vv = unescape(str[0]);
+
+                    if (str.length === 1) kk = vv;
+                }
+                if (str.length > 1) {
+                    nn += vv + "=" + parent + "[" + kk + "];";
+                }
+
+                if (str.length === 3) {
+                    cc = unescape(str[2]);
+                    mm = "';" + cc + "=0;";
+                    nn += cc + "++;";
+                }
+
+                return mm + "\nfor(" + kk + ' in ' + parent + "){" + nn + "\nout+='";
+            });
+            tmp = tmp.replace(c.tagForEnd, "'};\nout+='");
+
+            tmp = tmp.replace(c.tagContent, function(m, code) {
+                return cse.start + unescape(code) + cse.end;
+            });
+
+            str = ("var " + c.globalname + "=doT.global; var " + c.helpername + "=doT.helper; var out='" + tmp + "';\nreturn out;");
+
+            str = str.replace(/(\s|;|\}|^|\{)out\+='';/g, '$1');
+            str = str.replace(/\+''/g, "");
+
+            try {
+                return new Function(c.varname, str);
+            } catch (e) {
+                if (typeof console !== "undefined") console.log("Could not create a template function: " + str);
+                throw e;
+            }
+        };
+
+        doT.compile = function(tmpl, def) {
+            return doT.template(tmpl, null, def);
+        };
+        doT.getTpl = function(id) {
+            var tpl = document.getElementById(id);
+            return tpl ? tpl.innerHTML : '';
+        };
+    }());
+    </script>
+    
+    <script id="pagetmpl" type="text/x-dot-template">
+        global.version: 
+        {{global.version}} 
+        helper.dateFormat(it.birth):
+        {{helper.dateFormat(it.birth)}} 
+        
+        {{var: kk=456, mm=it.title}}
+        
+        <h1>{{it.title}}</h1> 
+        
+        {{if: it.name <0 }} if 
+        {{elif: it.name<3 }} elseif 
+        {{else:}} else {{/if}} 
+        
+        {{kk}} --- {{mm}} 
+        
+        {{for: k,d,g in it.list}} <br>key:{{k}} value:{{d}} count:{{g}} {{/for}}
+        <br> 
+        
+        {{for: it.list as d,k,g}}<br>key:{{k}} value:{{d}} count:{{g}} {{/for}} 
+        
+        {{for: k,d in it.list}}<br>key:{{k}} value:{{d}} {{/for}}
+        <br> 
+        
+        {{for: it.list as d,k}}<br>key:{{k}} value:{{d}} {{/for}} 
+        
+        {{for: k in it.list}}<br>key:{{k}} {{/for}}
+        <br> 
+        
+        {{for: it.list as d}}<br>value:{{d}} {{/for}} 
+        
+        {{include: aa}}
+    </script>
+    <script id="aa" type="text/x-dot-template">
+        hhhhhhhh</script>
+</head>
+
+<body>
+    <div id="content"></div>
+</body>
+<script type="text/javascript">
+var data = {
+    title: "My title",
+    name: 4,
+    list: [2, 3, 4, 5, 6],
+    birth: '1467692388413'
+};
+var pagefn;
+
+function kkk() {
+    pagefn = doT.template(document.getElementById('pagetmpl').text);
+};
+
+function fff() {
+    document.getElementById('content').innerHTML = pagefn(data);
+};
+</script>
+<button onclick="kkk()">kkk</button>
+<button onclick="fff()">dddd</button>
